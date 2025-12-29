@@ -1,0 +1,40 @@
+cabal-version:   3.12
+name:            haskell-playground
+version:         0.1.0.0
+license:         MIT
+license-file:    LICENSE
+author:          bgl gwyng
+maintainer:      bgl@gwyng.com
+category:        Codec
+build-type:      Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+  ghc-options: -Wall
+
+library
+  import:           warnings
+  exposed-modules:  MyLib
+  build-depends:    base ^>=4.20.2.0
+  hs-source-dirs:   lib
+  default-language: GHC2024
+
+executable haskell-playground
+  import:           warnings
+  main-is:          Main.hs
+  build-depends:
+    , base                ^>=4.20.2.0
+    , haskell-playground
+
+  hs-source-dirs:   exe
+  default-language: GHC2024
+
+test-suite haskell-playground-test
+  import:           warnings
+  default-language: GHC2024
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , base                ^>=4.20.2.0
+    , haskell-playground
