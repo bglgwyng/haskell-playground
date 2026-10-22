@@ -1,5 +1,3 @@
-module Main (main) where
-
 import MyLib qualified (someFunc)
 
 main :: IO ()

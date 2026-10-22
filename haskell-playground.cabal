@@ -19,9 +19,9 @@ library
   hs-source-dirs: lib
   default-language: GHC2024
 
-executable haskell-playground
+executable playground
   import: warnings
-  main-is: Main.hs
+  main-is: playground.hs
   build-depends:
     base ^>=4.20.2.0,
     haskell-playground,
