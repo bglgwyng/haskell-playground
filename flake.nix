@@ -47,7 +47,7 @@
             devShell = {
               hlsCheck.enable = false;
               tools = hpkgs: {
-                inherit (hpkgs) cabal-fmt;
+                inherit (hpkgs) cabal-gild;
               };
             };
           };
