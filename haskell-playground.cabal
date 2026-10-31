@@ -12,26 +12,38 @@ extra-doc-files: CHANGELOG.md
 common warnings
   ghc-options: -Wall
 
+common languages
+  default-language: GHC2024
+  default-extensions:
+    BlockArguments
+    DerivingStrategies
+    NoFieldSelectors
+    OverloadedRecordDot
+    OverloadedStrings
+
 library
-  import: warnings
+  import: warnings, languages
   exposed-modules: MyLib
   build-depends: base ^>=4.20.2.0
   hs-source-dirs: lib
-  default-language: GHC2024
 
 executable playground
-  import: warnings
+  import: warnings, languages
   main-is: playground.hs
   build-depends:
     base ^>=4.20.2.0,
+    constraints,
+    ghc,
+    ghc-paths,
+    haskeline,
     haskell-playground,
+    hint,
+    mtl,
 
   hs-source-dirs: exe
-  default-language: GHC2024
 
 test-suite haskell-playground-test
-  import: warnings
-  default-language: GHC2024
+  import: warnings, languages
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
