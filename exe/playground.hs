@@ -71,10 +71,10 @@ main = do
           line
             | ":e " `isPrefixOf` line -> do
                 let line' = "(" <> drop 3 line <> ")"
-                    doExp = ("(" <> line' <> " (forceVoid _a)) :: " <> monad_str <> " _b")
+                    doExp = "void (" <> line' <> " (forceVoid _a)) :: " <> actionOf monad_str
                 holes <- sendInterpreterRequest chan $ runGhc $ inferHoles doExp
 
-                let (_, b_type) : (_, a_type) : _ = holes
+                let (_, a_type) : _ = holes
 
                 let insideActionType = monadOf $ renderWithContext defaultSDocContext (ppr a_type)
 
