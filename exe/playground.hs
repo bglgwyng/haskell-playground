@@ -95,6 +95,8 @@ main = do
                 void . join $
                   sendInterpreterRequest chan $
                     unsafeInterpret (line <> " >>= liftIO . print") (actionOf monad_str)
+                      `C.catch` \(_ :: InterpreterError) ->
+                        unsafeInterpret ("liftIO $ print " <> line) (actionOf monad_str)
                 loop
   session "IO" `C.catch` \(x :: C.SomeException) -> print x
 
