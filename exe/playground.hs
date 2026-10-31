@@ -1,9 +1,13 @@
+import Control.Concurrent
+import Control.Exception (throwIO)
 import Control.Monad
+import Control.Monad.Catch qualified as C
 import Control.Monad.State
 import Data.Constraint
 import Data.Function
 import Data.Functor
 import Data.List
+import Data.Some
 import GHC hiding (NotQualified, runGhc)
 import GHC.Base hiding (Type, withDict)
 import GHC.Core.TyCo.Tidy (tidyOpenType)
@@ -28,68 +32,71 @@ import Language.Haskell.Interpreter.Unsafe (unsafeInterpret)
 import System.IO
 
 main :: IO ()
-main =
-  print =<< runInterpreter do
-    set [languageExtensions := [UnknownExtension "GHC2024"]]
-    setImportsF
-      [ ModuleImport "Prelude" NotQualified NoImportList
-      , ModuleImport "Data.Functor" NotQualified NoImportList
-      , ModuleImport "Control.Monad.Identity" NotQualified NoImportList
-      , ModuleImport "Control.Monad.State" NotQualified NoImportList
-      , ModuleImport "Control.Monad.Reader" NotQualified NoImportList
-      , ModuleImport "Language.Haskell.Interpreter" NotQualified (ImportList ["InterpreterT", "MonadInterpreter (..)"])
-      , ModuleImport "Data.Constraint" NotQualified NoImportList
-      ]
+main = do
+  chan <- newChan @(Some InterpreterRequest)
 
-    void $
-      runGhc $
-        runDecls $
-          unlines
-            [ "forceVoid :: m () -> m (); forceVoid  = id"
-            , "instance (MonadInterpreter m) => MonadInterpreter (StateT s m) where"
-            , "  runGhc x = lift $ runGhc x"
-            , "  fromSession x = lift $ fromSession x"
-            , "  modifySessionRef x y = lift $ modifySessionRef x y"
-            , "instance (MonadInterpreter m) => MonadInterpreter (ReaderT r m) where"
-            , "  runGhc x = lift $ runGhc x"
-            , "  fromSession x = lift $ fromSession x"
-            , "  modifySessionRef x y = lift $ modifySessionRef x y"
-            ]
+  void . forkIO . void $
+    runInterpreter do
+      set [languageExtensions := [UnknownExtension "GHC2024"]]
+      setImportsF
+        [ ModuleImport "Prelude" NotQualified NoImportList
+        , ModuleImport "Data.Functor" NotQualified NoImportList
+        , ModuleImport "Control.Monad.Identity" NotQualified NoImportList
+        , ModuleImport "Control.Monad.State" NotQualified NoImportList
+        , ModuleImport "Control.Monad.IO.Class" NotQualified NoImportList
+        , ModuleImport "Control.Monad.Reader" NotQualified NoImportList
+        , ModuleImport "Data.Constraint" NotQualified NoImportList
+        ]
 
-    liftIO $ hSetBuffering stdout NoBuffering
-    let session :: forall m. (MonadInterpreter m) => String -> m ()
-        session monad_str = fix $ \loop -> do
-          liftIO $ putStr "> "
-          line <- liftIO getLine
+      void $ runGhc $ runDecls $ unlines ["forceVoid :: m () -> m (); forceVoid  = id"]
+      let loop = do
+            some <- liftIO $ readChan chan
+            withSome some \(InterpreterRequest action mResp) -> do
+              C.try action >>= liftIO . putMVar mResp
+            loop
 
-          case line of
-            ":q" -> pure ()
-            ":print-monad" -> do
-              liftIO $ putStrLn monad_str
-              loop
-            line
-              | ":e " `isPrefixOf` line -> do
-                  let line' = "(" <> drop 3 line <> ")"
-                      doExp = ("(" <> line' <> " (forceVoid _a)) :: " <> monad_str <> " _b")
-                  holes <- runGhc $ inferHoles doExp
+      loop
 
-                  let (_, b_type) : (_, a_type) : _ = holes
+  hSetBuffering stdout NoBuffering
+  let session :: forall m. (MonadIO m) => String -> m ()
+      session monad_str = fix $ \loop -> do
+        liftIO $ putStr "> "
+        line <- liftIO getLine
 
-                  let insideActionType = monadOf $ renderWithContext defaultSDocContext (ppr a_type)
+        case line of
+          ":q" -> pure ()
+          ":print-monad" -> do
+            liftIO $ putStrLn monad_str
+            loop
+          line
+            | ":e " `isPrefixOf` line -> do
+                let line' = "(" <> drop 3 line <> ")"
+                    doExp = ("(" <> line' <> " (forceVoid _a)) :: " <> monad_str <> " _b")
+                holes <- sendInterpreterRequest chan $ runGhc $ inferHoles doExp
 
-                  run :: (n () -> m ()) <-
+                let (_, b_type) : (_, a_type) : _ = holes
+
+                let insideActionType = monadOf $ renderWithContext defaultSDocContext (ppr a_type)
+
+                run :: (n () -> m ()) <-
+                  sendInterpreterRequest chan $
                     unsafeInterpret
                       ("\\m -> void (" <> line' <> " m)")
                       (actionOf insideActionType <> " -> " <> actionOf monad_str)
 
-                  dict :: Dict (MonadInterpreter n) <- unsafeInterpret ("Dict") ("Dict (MonadInterpreter (" <> insideActionType <> "))")
+                dict :: Dict (MonadIO n) <-
+                  sendInterpreterRequest chan $
+                    unsafeInterpret "Dict" $
+                      "Dict (MonadIO (" <> insideActionType <> "))"
 
-                  run (withDict dict $ (session $ insideActionType))
-                  loop
-              | otherwise -> do
-                  void . join $ unsafeInterpret (line <> " >>= liftIO . print") (actionOf monad_str)
-                  loop
-    session "InterpreterT IO"
+                run (withDict dict $ (session $ insideActionType))
+                loop
+            | otherwise -> do
+                void . join $
+                  sendInterpreterRequest chan $
+                    unsafeInterpret (line <> " >>= liftIO . print") (actionOf monad_str)
+                loop
+  session "IO" `C.catch` \(x :: C.SomeException) -> print x
 
 showTypeQualified :: (GhcMonad m) => Type -> m String
 showTypeQualified ty = do
@@ -118,3 +125,12 @@ monadOf action_str =
   assert (drop (length action_str - 3) action_str == " ()") $
     dropEnd 3 action_str
 actionOf monad_str = monad_str <> " ()"
+
+data InterpreterRequest a where
+  InterpreterRequest :: Interpreter a -> MVar (Either C.SomeException a) -> InterpreterRequest a
+
+sendInterpreterRequest :: (MonadIO m) => Chan (Some InterpreterRequest) -> Interpreter a -> m a
+sendInterpreterRequest chan action = liftIO do
+  mResp <- newEmptyMVar
+  writeChan chan (mkSome $ InterpreterRequest action mResp)
+  either throwIO pure =<< takeMVar mResp

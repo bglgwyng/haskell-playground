@@ -33,12 +33,14 @@ executable playground
   build-depends:
     base ^>=4.20.2.0,
     constraints,
+    exceptions,
     ghc,
     ghc-paths,
     haskeline,
     haskell-playground,
     hint,
     mtl,
+    some,
 
   hs-source-dirs: exe
 
